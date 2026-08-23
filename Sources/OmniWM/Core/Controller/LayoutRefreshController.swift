@@ -1304,6 +1304,13 @@ import QuartzCore
         }
     }
 
+    func managedFocusRecoveryWorkspaceId() -> WorkspaceDescriptor.ID? {
+        guard let controller else { return nil }
+        return controller.workspaceManager.focusedToken
+            .flatMap { controller.workspaceManager.workspace(for: $0) }
+            ?? controller.activeWorkspace()?.id
+    }
+
     private func buildRelayoutEffectPlan(
         useScrollAnimationPath: Bool,
         recoverFocus: Bool,
@@ -1346,9 +1353,7 @@ import QuartzCore
         effects.visibility = .init()
 
         if recoverFocus,
-           let focusedWorkspaceId = controller.workspaceManager.focusedToken
-               .flatMap({ controller.workspaceManager.workspace(for: $0) })
-               ?? controller.activeWorkspace()?.id,
+           let focusedWorkspaceId = managedFocusRecoveryWorkspaceId(),
            !controller.workspaceManager.hasPendingNativeFullscreenTransition(in: focusedWorkspaceId),
            !controller.shouldSuppressManagedFocusRecovery,
            layoutWorkspaceIds.contains(focusedWorkspaceId)
@@ -1516,7 +1521,7 @@ import QuartzCore
         var seenKeys: Set<WindowToken> = []
         var decisionBasedRemovals: [WindowToken] = []
         var floatingFocusCandidate: FullRescanFloatingFocusCandidate?
-        let focusedWorkspaceId = controller.activeWorkspace()?.id
+        let focusedWorkspaceId = managedFocusRecoveryWorkspaceId()
         let screenFrames = NSScreen.screens.map(\.frame)
 
         for candidate in enumerationSnapshot.windows {

@@ -2731,6 +2731,10 @@ final class RuntimeArchitectureTests: XCTestCase {
         )
         XCTAssertEqual(controller.activeWorkspace()?.id, rightWorkspaceId)
         XCTAssertEqual(controller.workspaceManager.focusedToken, leftToken)
+        XCTAssertEqual(
+            controller.layoutRefreshController.managedFocusRecoveryWorkspaceId(),
+            leftWorkspaceId
+        )
 
         controller.layoutRefreshController.requestRelayout(
             reason: .axWindowCreated,
