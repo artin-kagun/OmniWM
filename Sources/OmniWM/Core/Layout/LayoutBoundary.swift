@@ -64,6 +64,8 @@ struct NiriWorkspaceSnapshot {
     let plannedSeq: UInt64
     let viewportState: ViewportState
     let preferredFocusToken: WindowToken?
+    let frontmostApplicationPID: pid_t?
+    let restrictsNewWindowFocusToFrontmostApplication: Bool
     let hasCompletedInitialRefresh: Bool
     let useScrollAnimationPath: Bool
     let removalSeed: NiriWindowRemovalSeed?

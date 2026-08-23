@@ -505,6 +505,10 @@ enum StructuralMutationOutcome: Equatable {
             plannedSeq: refreshInput.plannedSeq,
             viewportState: effectiveViewportState,
             preferredFocusToken: controller.workspaceManager.preferredFocusToken(in: wsId),
+            frontmostApplicationPID: controller.hasStartedServices
+                ? controller.axEventHandler.frontmostApplicationPIDProvider()
+                : nil,
+            restrictsNewWindowFocusToFrontmostApplication: controller.hasStartedServices,
             hasCompletedInitialRefresh: controller.layoutRefreshController.layoutState.hasCompletedInitialRefresh,
             useScrollAnimationPath: useScrollAnimationPath,
             removalSeed: removalSeed,
@@ -980,7 +984,10 @@ enum StructuralMutationOutcome: Equatable {
         var hasNewWindowArrival = false
         var shouldStartScrollForNewWindow = false
         if snapshot.hasCompletedInitialRefresh,
-           let newToken = newTokens.last,
+           let newToken = newTokens.last(where: {
+               !snapshot.restrictsNewWindowFocusToFrontmostApplication
+                   || $0.pid == snapshot.frontmostApplicationPID
+           }),
            let newNode = pass.engine.findNode(for: newToken, in: pass.wsId),
            snapshot.isActiveWorkspace
         {

@@ -2585,6 +2585,72 @@ final class RuntimeArchitectureTests: XCTestCase {
     }
 
     @MainActor
+    func testNiriRelayoutDoesNotFocusNewWindowOwnedByBackgroundApp() async throws {
+        var focusedTokens: [WindowToken] = []
+        let controller = Self.controller(
+            windowFocusOperations: WindowFocusOperations(
+                activateApp: { _ in },
+                focusSpecificWindow: { pid, windowId, _ in
+                    focusedTokens.append(WindowToken(pid: pid, windowId: Int(windowId)))
+                },
+                raiseWindow: { _ in }
+            )
+        )
+        let workspaceId = try XCTUnwrap(
+            controller.workspaceManager.workspaceId(for: "1", createIfMissing: true)
+        )
+        _ = controller.workspaceManager.focusWorkspace(named: "1")
+        controller.niriLayoutHandler.enableNiriLayout()
+        controller.motionPolicy.animationsEnabled = false
+        controller.layoutRefreshController.layoutState.hasCompletedInitialRefresh = true
+        controller.hasStartedServices = true
+
+        let foregroundToken = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateApplication(765_020), windowId: 765_120),
+            pid: 765_020,
+            windowId: 765_120,
+            to: workspaceId
+        )
+        let backgroundToken = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateApplication(765_021), windowId: 765_121),
+            pid: 765_021,
+            windowId: 765_121,
+            to: workspaceId
+        )
+        let engine = try XCTUnwrap(controller.niriEngine)
+        let foregroundNode = engine.addWindow(
+            token: foregroundToken,
+            to: workspaceId,
+            afterSelection: nil
+        )
+        _ = controller.workspaceManager.commitWorkspaceSelection(
+            nodeId: foregroundNode.id,
+            focusedToken: foregroundToken,
+            in: workspaceId,
+            onMonitor: controller.workspaceManager.monitorId(for: workspaceId)
+        )
+        XCTAssertTrue(
+            controller.workspaceManager.confirmManagedFocus(
+                foregroundToken,
+                in: workspaceId,
+                activateWorkspaceOnMonitor: false
+            )
+        )
+        controller.axEventHandler.frontmostApplicationPIDProvider = { foregroundToken.pid }
+
+        controller.layoutRefreshController.requestRelayout(
+            reason: .axWindowCreated,
+            affectedWorkspaceIds: [workspaceId]
+        )
+        await WindowAdmissionTestSupport.drainLayoutRefreshes(controller)
+
+        XCTAssertNotNil(engine.findNode(for: backgroundToken, in: workspaceId))
+        XCTAssertEqual(controller.workspaceManager.focusedToken, foregroundToken)
+        XCTAssertNil(controller.workspaceManager.pendingFocusedToken)
+        XCTAssertFalse(focusedTokens.contains(backgroundToken))
+    }
+
+    @MainActor
     func testLayoutPlanDoesNotActivateWindowOverFocusedSystemModal() throws {
         var focusedTokens: [WindowToken] = []
         let controller = Self.controller(
