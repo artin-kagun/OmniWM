@@ -1346,7 +1346,9 @@ import QuartzCore
         effects.visibility = .init()
 
         if recoverFocus,
-           let focusedWorkspaceId = controller.activeWorkspace()?.id,
+           let focusedWorkspaceId = controller.workspaceManager.focusedToken
+               .flatMap({ controller.workspaceManager.workspace(for: $0) })
+               ?? controller.activeWorkspace()?.id,
            !controller.workspaceManager.hasPendingNativeFullscreenTransition(in: focusedWorkspaceId),
            !controller.shouldSuppressManagedFocusRecovery,
            layoutWorkspaceIds.contains(focusedWorkspaceId)

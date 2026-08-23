@@ -2651,6 +2651,99 @@ final class RuntimeArchitectureTests: XCTestCase {
     }
 
     @MainActor
+    func testRelayoutOnOtherActiveMonitorDoesNotRecoverFocusOverManagedFocus() async throws {
+        var focusedTokens: [WindowToken] = []
+        let controller = Self.controller(
+            windowFocusOperations: WindowFocusOperations(
+                activateApp: { _ in },
+                focusSpecificWindow: { pid, windowId, _ in
+                    focusedTokens.append(WindowToken(pid: pid, windowId: Int(windowId)))
+                },
+                raiseWindow: { _ in }
+            )
+        )
+        let leftMonitor = Monitor(
+            id: .init(displayId: 10_101),
+            displayId: 10_101,
+            frame: CGRect(x: 0, y: 0, width: 1200, height: 800),
+            visibleFrame: CGRect(x: 0, y: 0, width: 1200, height: 800),
+            hasNotch: false,
+            name: "Left"
+        )
+        let rightMonitor = Monitor(
+            id: .init(displayId: 10_102),
+            displayId: 10_102,
+            frame: CGRect(x: 1200, y: 0, width: 1200, height: 800),
+            visibleFrame: CGRect(x: 1200, y: 0, width: 1200, height: 800),
+            hasNotch: false,
+            name: "Right"
+        )
+        controller.workspaceManager.applyMonitorConfigurationChange([leftMonitor, rightMonitor])
+        let leftWorkspaceId = try XCTUnwrap(
+            controller.workspaceManager.workspaceId(for: "1", createIfMissing: true)
+        )
+        let rightWorkspaceId = try XCTUnwrap(
+            controller.workspaceManager.workspaceId(for: "6", createIfMissing: true)
+        )
+        controller.niriLayoutHandler.enableNiriLayout()
+        controller.motionPolicy.animationsEnabled = false
+        controller.layoutRefreshController.layoutState.hasCompletedInitialRefresh = true
+
+        let leftToken = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateApplication(765_022), windowId: 765_122),
+            pid: 765_022,
+            windowId: 765_122,
+            to: leftWorkspaceId
+        )
+        let rightToken = controller.workspaceManager.addWindow(
+            AXWindowRef(element: AXUIElementCreateApplication(765_023), windowId: 765_123),
+            pid: 765_023,
+            windowId: 765_123,
+            to: rightWorkspaceId
+        )
+        let engine = try XCTUnwrap(controller.niriEngine)
+        let leftNode = engine.addWindow(token: leftToken, to: leftWorkspaceId, afterSelection: nil)
+        let rightNode = engine.addWindow(token: rightToken, to: rightWorkspaceId, afterSelection: nil)
+        _ = controller.workspaceManager.commitWorkspaceSelection(
+            nodeId: rightNode.id,
+            focusedToken: rightToken,
+            in: rightWorkspaceId,
+            onMonitor: rightMonitor.id
+        )
+        XCTAssertTrue(
+            controller.workspaceManager.confirmManagedFocus(
+                leftToken,
+                in: leftWorkspaceId,
+                onMonitor: leftMonitor.id,
+                activateWorkspaceOnMonitor: true
+            )
+        )
+        _ = controller.workspaceManager.commitWorkspaceSelection(
+            nodeId: leftNode.id,
+            focusedToken: leftToken,
+            in: leftWorkspaceId,
+            onMonitor: leftMonitor.id
+        )
+        _ = controller.workspaceManager.updateInteractionMonitor(
+            rightMonitor.id,
+            preservePrevious: true,
+            notify: false
+        )
+        XCTAssertEqual(controller.activeWorkspace()?.id, rightWorkspaceId)
+        XCTAssertEqual(controller.workspaceManager.focusedToken, leftToken)
+
+        controller.layoutRefreshController.requestRelayout(
+            reason: .axWindowCreated,
+            affectedWorkspaceIds: [rightWorkspaceId]
+        )
+        await WindowAdmissionTestSupport.drainLayoutRefreshes(controller)
+
+        XCTAssertEqual(controller.workspaceManager.focusedToken, leftToken)
+        XCTAssertNil(controller.workspaceManager.pendingFocusedToken)
+        XCTAssertFalse(focusedTokens.contains(rightToken))
+    }
+
+    @MainActor
     func testLayoutPlanDoesNotActivateWindowOverFocusedSystemModal() throws {
         var focusedTokens: [WindowToken] = []
         let controller = Self.controller(
