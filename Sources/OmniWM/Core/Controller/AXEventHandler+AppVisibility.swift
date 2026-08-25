@@ -13,6 +13,7 @@ extension AXEventHandler {
 
     func handleAppDeactivated(pid: pid_t) {
         guard let controller else { return }
+        releaseForeignTransientUI(pid: pid)
         let workspaceManager = controller.workspaceManager
         workspaceManager.clearNonManagedFocusTarget(pid: pid)
 

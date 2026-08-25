@@ -27,6 +27,96 @@ final class ForeignTransientFocusRecoveryTests: XCTestCase {
         assertManagedRecovery(fixture)
     }
 
+    func testNonRenderableTransientProtectionSuppressesRecoveryWithoutRenderableTarget() throws {
+        let fixture = try makeFixture(prefix: "OmniWMNonRenderableTransientProtectionTests")
+        let popupToken = WindowToken(pid: fixture.mainToken.pid, windowId: 559_240)
+        fixture.controller.axEventHandler.frontmostApplicationPIDProvider = { popupToken.pid }
+
+        XCTAssertTrue(fixture.controller.workspaceManager.enterNonManagedFocus())
+        fixture.controller.axEventHandler.protectForeignTransientUI(
+            popupToken,
+            requiresFrontmostApplication: true
+        )
+        fixture.controller.ensureFocusedTokenValid(in: fixture.workspaceId)
+
+        XCTAssertNil(fixture.controller.workspaceManager.nonManagedFocusToken)
+        XCTAssertEqual(
+            fixture.controller.axEventHandler.protectedForeignTransientUITokens,
+            [popupToken]
+        )
+        XCTAssertEqual(fixture.controller.focusPolicyEngine.activeLease?.owner, .foreignTransientUI)
+        XCTAssertTrue(fixture.controller.shouldSuppressManagedFocusRecovery)
+        XCTAssertTrue(fixture.recorder.operations.isEmpty)
+        XCTAssertNil(fixture.controller.intentLedger.activeManagedRequest)
+        XCTAssertNil(fixture.controller.workspaceManager.pendingFocusedToken)
+    }
+
+    func testClosingNonRenderableTransientProtectionRestoresRecovery() throws {
+        let fixture = try makeFixture(prefix: "OmniWMNonRenderableTransientCloseTests")
+        let popupToken = WindowToken(pid: fixture.mainToken.pid, windowId: 559_241)
+        fixture.controller.axEventHandler.frontmostApplicationPIDProvider = { popupToken.pid }
+        XCTAssertTrue(fixture.controller.workspaceManager.enterNonManagedFocus())
+        fixture.controller.axEventHandler.protectForeignTransientUI(
+            popupToken,
+            requiresFrontmostApplication: true
+        )
+
+        fixture.controller.axEventHandler.handleCGSEvent(
+            .closed(windowId: UInt32(popupToken.windowId))
+        )
+
+        XCTAssertTrue(fixture.controller.axEventHandler.protectedForeignTransientUITokens.isEmpty)
+        XCTAssertNil(fixture.controller.focusPolicyEngine.activeLease)
+        assertManagedRecovery(fixture)
+    }
+
+    func testOverlappingNonRenderableTransientsHoldProtectionUntilLastClose() throws {
+        let fixture = try makeFixture(prefix: "OmniWMOverlappingNonRenderableTransientTests")
+        let olderPopup = WindowToken(pid: fixture.mainToken.pid, windowId: 559_242)
+        let newerPopup = WindowToken(pid: fixture.mainToken.pid, windowId: 559_243)
+        fixture.controller.axEventHandler.frontmostApplicationPIDProvider = { fixture.mainToken.pid }
+        fixture.controller.axEventHandler.protectForeignTransientUI(
+            olderPopup,
+            requiresFrontmostApplication: true
+        )
+        fixture.controller.axEventHandler.protectForeignTransientUI(
+            newerPopup,
+            requiresFrontmostApplication: true
+        )
+
+        fixture.controller.axEventHandler.handleCGSEvent(
+            .closed(windowId: UInt32(olderPopup.windowId))
+        )
+
+        XCTAssertEqual(
+            fixture.controller.axEventHandler.protectedForeignTransientUITokens,
+            [newerPopup]
+        )
+        XCTAssertEqual(fixture.controller.focusPolicyEngine.activeLease?.owner, .foreignTransientUI)
+
+        fixture.controller.axEventHandler.handleCGSEvent(
+            .closed(windowId: UInt32(newerPopup.windowId))
+        )
+
+        XCTAssertTrue(fixture.controller.axEventHandler.protectedForeignTransientUITokens.isEmpty)
+        XCTAssertNil(fixture.controller.focusPolicyEngine.activeLease)
+    }
+
+    func testBackgroundNonRenderableTransientDoesNotArmProtection() throws {
+        let fixture = try makeFixture(prefix: "OmniWMBackgroundNonRenderableTransientTests")
+        let popupToken = WindowToken(pid: 559_044, windowId: 559_244)
+        fixture.controller.axEventHandler.frontmostApplicationPIDProvider = { fixture.mainToken.pid }
+
+        fixture.controller.axEventHandler.protectForeignTransientUI(
+            popupToken,
+            requiresFrontmostApplication: true
+        )
+
+        XCTAssertTrue(fixture.controller.axEventHandler.protectedForeignTransientUITokens.isEmpty)
+        XCTAssertNil(fixture.controller.focusPolicyEngine.activeLease)
+        XCTAssertFalse(fixture.controller.shouldSuppressManagedFocusRecovery)
+    }
+
     func testInactiveNonManagedFocusWithRetainedTargetRecoversRememberedMainWindow() throws {
         let fixture = try makeFixture(prefix: "OmniWMForeignTransientInactiveTargetTests")
         let popupToken = WindowToken(pid: 559_002, windowId: 559_202)
@@ -102,10 +192,18 @@ final class ForeignTransientFocusRecoveryTests: XCTestCase {
                 target: deactivatedPopupToken
             )
         )
+        deactivationFixture.controller.axEventHandler.protectForeignTransientUI(
+            deactivatedPopupToken,
+            requiresFrontmostApplication: false
+        )
 
         deactivationFixture.controller.axEventHandler.handleAppDeactivated(pid: deactivatedPopupToken.pid)
 
         XCTAssertNil(deactivationFixture.controller.workspaceManager.nonManagedFocusToken)
+        XCTAssertTrue(
+            deactivationFixture.controller.axEventHandler.protectedForeignTransientUITokens.isEmpty
+        )
+        XCTAssertNil(deactivationFixture.controller.focusPolicyEngine.activeLease)
         assertManagedRecovery(deactivationFixture)
 
         let terminationFixture = try makeFixture(prefix: "OmniWMForeignTransientTerminationTests")
@@ -115,12 +213,20 @@ final class ForeignTransientFocusRecoveryTests: XCTestCase {
                 target: terminatedPopupToken
             )
         )
+        terminationFixture.controller.axEventHandler.protectForeignTransientUI(
+            terminatedPopupToken,
+            requiresFrontmostApplication: false
+        )
 
         terminationFixture.controller.serviceLifecycleManager.handleAppTerminated(
             pid: terminatedPopupToken.pid
         )
 
         XCTAssertNil(terminationFixture.controller.workspaceManager.nonManagedFocusToken)
+        XCTAssertTrue(
+            terminationFixture.controller.axEventHandler.protectedForeignTransientUITokens.isEmpty
+        )
+        XCTAssertNil(terminationFixture.controller.focusPolicyEngine.activeLease)
         assertManagedRecovery(terminationFixture)
     }
 

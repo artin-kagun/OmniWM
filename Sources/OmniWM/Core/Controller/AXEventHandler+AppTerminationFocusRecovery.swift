@@ -8,6 +8,7 @@ extension AXEventHandler {
     func cleanupFocusStateForTerminatedApp(pid: pid_t) {
         guard let controller else { return }
 
+        releaseForeignTransientUI(pid: pid)
         cleanupAdmissionStateForTerminatedApp(pid: pid)
         admissionQuarantineByWindowId = admissionQuarantineByWindowId.filter { $0.value.token.pid != pid }
         terminalFrameFailureStateByWindowId = terminalFrameFailureStateByWindowId.filter { windowId, _ in

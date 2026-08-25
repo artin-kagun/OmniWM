@@ -345,6 +345,7 @@ final class AXEventHandler {
     private var pendingWindowRuleReevaluationTask: Task<Void, Never>?
     private var pendingWindowRuleReevaluationTargets: Set<WindowRuleReevaluationTarget> = []
     private var pendingWindowRuleReevaluationGeneration: UInt64 = 0
+    var protectedForeignTransientUITokens: Set<WindowToken> = []
     var pendingPostCreateLifecycleVerificationTasks: [WindowToken: Task<Void, Never>] = [:]
     var pendingPostCreateLifecycleVerificationOwners: [WindowToken: UInt64] = [:]
     var nextPostCreateLifecycleVerificationOwner: UInt64 = 1
@@ -401,6 +402,7 @@ final class AXEventHandler {
     func cleanup() {
         resetCreatePlacementContextState()
         resetManagedReplacementState()
+        clearForeignTransientUIProtection()
         endWindowCloseFocusRecovery(reason: "cleanup")
         cancelSameAppCloseProbe(reason: "cleanup")
         resetPostCreateLifecycleVerificationState()
@@ -1911,8 +1913,12 @@ final class AXEventHandler {
             return
         }
 
-        let nonManagedTarget: WindowToken? = admissionAttempt
-            == .admissionRejected(.nonRenderableTransientSurface) ? nil : token
+        let isNonRenderableTransientSurface = admissionAttempt
+            == .admissionRejected(.nonRenderableTransientSurface)
+        if isNonRenderableTransientSurface {
+            protectForeignTransientUI(token, requiresFrontmostApplication: false)
+        }
+        let nonManagedTarget: WindowToken? = isNonRenderableTransientSurface ? nil : token
         _ = controller.workspaceManager.enterNonManagedFocus(target: nonManagedTarget)
         controller.surfaceReconciler.noteRestackOccurred()
 
@@ -2185,6 +2191,7 @@ final class AXEventHandler {
         callbackGeneration: UInt64? = nil
     ) {
         guard let controller else { return }
+        releaseForeignTransientUI(pid: entry.pid)
         WindowAdmissionTrace.record(
             .init(
                 action: .managedFocusObserved,
@@ -2756,6 +2763,9 @@ final class AXEventHandler {
                     )
                 )
             )
+            if reason == .nonRenderableTransientSurface, let token {
+                protectForeignTransientUI(token, requiresFrontmostApplication: true)
+            }
         }
         return nil
     }
@@ -3934,6 +3944,7 @@ extension AXEventHandler {
         windowId: UInt32,
         evidence: WindowDestroyEvidence
     ) {
+        releaseForeignTransientUI(windowId: Int(windowId))
         AXWindowService.invalidateCachedTitle(windowId: windowId)
         cancelCreatedWindowRetry(windowId: windowId)
         discardCreatePlacementContext(windowId: windowId)

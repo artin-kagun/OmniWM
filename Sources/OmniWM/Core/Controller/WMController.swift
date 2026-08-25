@@ -3216,6 +3216,7 @@ extension WMController {
 
     var shouldSuppressManagedFocusRecovery: Bool {
         if isSystemModalFocusActive { return true }
+        if !focusPolicyEngine.evaluate(.windowFronting).allowsFocusChange { return true }
         guard workspaceManager.isNonManagedFocusActive else { return false }
         return hasFrontmostOwnedWindow || workspaceManager.nonManagedFocusToken != nil
     }
